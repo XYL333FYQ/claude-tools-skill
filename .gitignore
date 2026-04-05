@@ -1,0 +1,4 @@
+# Cache files generated at runtime — do not commit
+tools-cache.md
+tools-project-cache.json
+tmp-tools-scan.js
