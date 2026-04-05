@@ -44,7 +44,7 @@ node ~/.claude/skills/tools/scan.js
 - stdout 输出一行 JSON 供展示
 
 **全局数据字段：**
-- `gv` GSD 版本 · `sk` 技能数组(name,desc) · `ag` 智能体数组 · `gc` GSD 命令数
+- `gv` GSD 版本 · `sk` 技能数组(name,desc) · `ag` 智能体数组(name,desc) · `cmd` 命令命名空间数组(ns,count,cmds)
 - `mc` MCP 数组(n,cn) · `pl` 插件数组(nm,desc,en,k) · `hk` 钩子数组(n,e)
 - `sl` 状态栏(bool) · `rc` 最近使用数组(n,d) · `cwdKey` 当前路径（正斜杠）
 
@@ -58,7 +58,7 @@ node ~/.claude/skills/tools/scan.js
 
 解析 JSON 后**必须执行**：
 
-1. 检测 `mc[].desc`、`sk[].desc`、`pl[].desc` 中每一项是否与当前对话语言一致
+1. 检测 `mc[].desc`、`sk[].desc`、`ag[].desc`、`pl[].desc` 中每一项是否与当前对话语言一致
 2. **发现任何不匹配的描述 → 直接翻译为当前对话语言，不询问用户**
 3. 若有翻译发生：Read `~/.claude/tools-cache.md`，用 Edit 替换对应行，确保缓存持久化
 4. 展示时使用翻译后的版本
@@ -116,7 +116,7 @@ Section headings with icons — translate labels to match conversation language:
 - `## 🌐 MCP Servers`
 - `## ⚡ Skills`
 - `## 🤖 Agents`
-- `## 🚀 GSD Commands`
+- `## 🚀 {NAMESPACE} Commands`（动态生成，按扫描到的命令命名空间）
 - `## 🧩 Plugins`
 - `## 🪝 Hooks`
 - `## 📊 Status Line`

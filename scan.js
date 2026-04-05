@@ -135,15 +135,55 @@ function scanAgents() {
   if (!fs.existsSync(agentsDir)) return [];
   return fs.readdirSync(agentsDir)
     .filter(f => f.endsWith('.md'))
-    .map(f => f.slice(0, -3));
+    .map(f => {
+      const name = f.slice(0, -3);
+      let desc = '';
+      try {
+        const content = fs.readFileSync(path.join(agentsDir, f), 'utf-8');
+        const fm = content.match(/^---\n([\s\S]*?)\n---/);
+        if (fm) {
+          const descLine = fm[1].split('\n').find(l => l.startsWith('description:'));
+          if (descLine) {
+            desc = descLine.replace(/^description:\s*['"]?/, '').replace(/['"]\s*$/, '').trim();
+          }
+        }
+      } catch (e) {}
+      return { name, desc };
+    });
 }
 
-// ─── Scan: GSD Commands ─────────────────────────────────────────────────────
+// ─── Scan: Command Namespaces ──────────────────────────────────────────────
 
-function scanGSDCommands() {
-  const gsdDir = path.join(HOME, '.claude', 'commands', 'gsd');
-  if (!fs.existsSync(gsdDir)) return 0;
-  return fs.readdirSync(gsdDir).filter(f => f.endsWith('.md')).length;
+function scanCommands() {
+  const cmdDir = path.join(HOME, '.claude', 'commands');
+  if (!fs.existsSync(cmdDir)) return [];
+  const namespaces = [];
+  const entries = fs.readdirSync(cmdDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const nsDir = path.join(cmdDir, entry.name);
+    const files = fs.readdirSync(nsDir).filter(f => f.endsWith('.md'));
+    if (!files.length) continue;
+    const cmds = files.map(f => {
+      const name = f.slice(0, -3);
+      let desc = '';
+      try {
+        const content = fs.readFileSync(path.join(nsDir, f), 'utf-8');
+        const fm = content.match(/^---\n([\s\S]*?)\n---/);
+        if (fm) {
+          const descLine = fm[1].split('\n').find(l => l.startsWith('description:'));
+          if (descLine) desc = descLine.replace(/^description:\s*['"]?/, '').replace(/['"]\s*$/, '').trim();
+        }
+        if (!desc) {
+          const h1 = content.split('\n').find(l => /^#+\s/.test(l));
+          if (h1) desc = h1.replace(/^#+\s*/, '').replace(/^\/\S+\s+[—-]\s*/, '').trim();
+        }
+      } catch (e) {}
+      return { name, desc };
+    });
+    namespaces.push({ ns: entry.name, count: files.length, cmds });
+  }
+  return namespaces;
 }
 
 // ─── Scan: MCP Servers ──────────────────────────────────────────────────────
@@ -244,8 +284,9 @@ function scanHooks(hooksConfig) {
 function scanRecentlyUsed() {
   const usage = claudeJson.skillUsage || {};
   const skillNames = skills.map(s => s.name);
+  const nsPrefixes = commandNamespaces.map(cn => cn.ns + ':');
   return Object.entries(usage)
-    .filter(([k]) => skillNames.includes(k) || k.startsWith('gsd:') || k === 'tools' || k === 'update-config')
+    .filter(([k]) => skillNames.includes(k) || nsPrefixes.some(p => k.startsWith(p)) || k === 'tools' || k === 'update-config')
     .sort((a, b) => (b[1].lastUsedAt || 0) - (a[1].lastUsedAt || 0))
     .slice(0, 5)
     .map(([key, val]) => {
@@ -313,7 +354,7 @@ function scanProjectData() {
 // Run all scans
 const skills = scanSkills();
 const agents = scanAgents();
-const gsdCommandCount = scanGSDCommands();
+const commandNamespaces = scanCommands();
 const mcpServers = scanMCPServers();
 const plugins = scanPlugins();
 const globalHooks = scanHooks(settings.hooks);
@@ -327,12 +368,14 @@ const today = (d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,
 const lines = [];
 lines.push('# 全局工具');
 lines.push('');
+let metaCmd = '';
+commandNamespaces.forEach(cn => { metaCmd += ' · ' + cn.count + ' ' + cn.ns.toUpperCase() + ' 命令'; });
 lines.push('> 更新：' + today
   + (gsdVersion ? ' · GSD ' + gsdVersion : '')
   + ' · ' + skills.length + ' 技能'
   + ' · ' + mcpServers.length + ' MCP'
   + ' · ' + agents.length + ' 智能体'
-  + (gsdCommandCount ? ' · ' + gsdCommandCount + ' GSD 命令' : '')
+  + metaCmd
   + ' · ' + plugins.length + ' 插件'
   + ' · ' + globalHooks.length + ' 钩子');
 lines.push('');
@@ -357,41 +400,66 @@ skills.forEach(s => {
 });
 lines.push('');
 
-// Agents section
-const builtInAgents = agents.filter(a => !a.startsWith('gsd-'));
-const gsdAgents = agents.filter(a => a.startsWith('gsd-')).map(a => a.slice(4));
+// Agents section — auto-detect groups by common prefix
+const agentGroups = { standalone: [], groups: [] };
+const prefixMap = {};
+agents.forEach(a => {
+  const dashIdx = a.name.indexOf('-');
+  if (dashIdx > 0) {
+    const prefix = a.name.substring(0, dashIdx);
+    if (!prefixMap[prefix]) prefixMap[prefix] = [];
+    prefixMap[prefix].push(a);
+  } else {
+    agentGroups.standalone.push(a);
+  }
+});
+for (const [prefix, members] of Object.entries(prefixMap)) {
+  if (members.length >= 2) {
+    agentGroups.groups.push({ prefix, agents: members, count: members.length });
+  } else {
+    agentGroups.standalone.push(...members);
+  }
+}
 
 lines.push('## 🤖 智能体');
 lines.push('');
-if (builtInAgents.length) {
-  lines.push('**内置（' + builtInAgents.length + ' 个）：**');
+if (agentGroups.standalone.length) {
+  lines.push('**通用（' + agentGroups.standalone.length + ' 个）：**');
   lines.push('');
-  lines.push('| 名称 | 触发场景 |');
-  lines.push('|------|----------|');
-  builtInAgents.forEach(a => {
-    lines.push('| ' + a + ' | ' + (CN.agent[a] || '—') + ' |');
+  lines.push('| 名称 | 用途 |');
+  lines.push('|------|------|');
+  agentGroups.standalone.forEach(a => {
+    const desc = CN.agent[a.name] || a.desc || '—';
+    lines.push('| ' + a.name + ' | ' + desc + ' |');
   });
 }
-if (gsdAgents.length) {
+agentGroups.groups.forEach(g => {
   lines.push('');
-  lines.push('**GSD 专用（' + gsdAgents.length + ' 个）：** ' + gsdAgents.join('、'));
-  lines.push('> 由 /gsd:* 命令自动调用，无需手动触发');
-}
+  lines.push('**' + g.prefix.toUpperCase() + ' 专用（' + g.count + ' 个）：**');
+  lines.push('');
+  lines.push('| 名称 | 用途 |');
+  lines.push('|------|------|');
+  g.agents.forEach(a => {
+    lines.push('| ' + a.name + ' | ' + (a.desc || '—') + ' |');
+  });
+  lines.push('');
+  lines.push('> 由 /' + g.prefix + ':* 命令自动调用，无需手动触发');
+});
 
-// GSD Commands section
-if (gsdCommandCount) {
+// Commands section — dynamic per namespace
+commandNamespaces.forEach(cn => {
   lines.push('');
-  lines.push('## 🚀 GSD 命令（' + gsdCommandCount + ' 个）');
+  lines.push('## 🚀 ' + cn.ns.toUpperCase() + ' 命令（' + cn.count + ' 个）');
   lines.push('');
   lines.push('| 命令 | 用途 |');
   lines.push('|------|------|');
-  lines.push('| /gsd:new-project | 初始化项目 |');
-  lines.push('| /gsd:plan-phase N | 规划阶段 |');
-  lines.push('| /gsd:execute-phase N | 执行阶段 |');
-  lines.push('| /gsd:progress | 查看进度 |');
-  lines.push('| /gsd:do 描述 | 智能路由 |');
-  lines.push('| /gsd:help | 查看全部 ' + gsdCommandCount + ' 个命令 |');
-}
+  cn.cmds.slice(0, 5).forEach(c => {
+    lines.push('| /' + cn.ns + ':' + c.name + ' | ' + (c.desc || '—') + ' |');
+  });
+  if (cn.count > 5) {
+    lines.push('| ... | 查看全部 ' + cn.count + ' 个命令（/' + cn.ns + ':help） |');
+  }
+});
 lines.push('');
 
 // Plugins table
@@ -454,13 +522,14 @@ fs.writeFileSync(path.join(HOME, '.claude', 'tools-project-cache.json'), JSON.st
 // Apply translations for display
 mcpServers.forEach(m => { m.desc = translate(m.desc || '', CN.mcp); });
 skills.forEach(s => { s.desc = translate(s.desc, CN.skill); });
+agents.forEach(a => { if (CN.agent[a.name]) a.desc = CN.agent[a.name]; });
 plugins.forEach(p => { p.desc = translate(p.desc, CN.plugin); });
 
 const output = {
   gv: gsdVersion,
   sk: skills,
   ag: agents,
-  gc: gsdCommandCount,
+  cmd: commandNamespaces,
   mc: mcpServers,
   pl: plugins,
   hk: globalHooks,
