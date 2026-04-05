@@ -44,3 +44,4 @@ node scan.js | node -e "process.stdin.on('data',d=>{JSON.parse(d);console.log('O
 - Maintain backward compatibility with Node.js >= 18
 - Test on Windows, macOS, and Linux if possible
 - Preserve the JSON output format — it's consumed by SKILL.md
+
