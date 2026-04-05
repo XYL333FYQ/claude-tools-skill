@@ -1,0 +1,25 @@
+{
+  "name": "claude-tools-skill",
+  "version": "1.0.0",
+  "description": "Claude Code skill — scan and display all available tools (MCP, skills, agents, plugins, hooks)",
+  "main": "scan.js",
+  "scripts": {
+    "scan": "node scan.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "claude-code",
+    "skill",
+    "mcp",
+    "toolbox",
+    "scanner"
+  ],
+  "author": "XYL333FYQ",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/XYL333FYQ/claude-tools-skill.git"
+  }
+}
